@@ -1,5 +1,5 @@
 //package streampvc provides interface to manage a suite of streams.
-//Each stream is guaranteed to run on an independent go routime
+//Each stream si guaranteed to run on an independent go routime
 // Easy to pipe handlers to the stream
 //TODO think about if want pool stream chache
 //Maintains a cache of recent connections
@@ -20,10 +20,9 @@ type ConnId string
 const MAXCONS = 10
 
 type connection struct {
-	socket  *websocket.Conn
-	comm    chan []byte   //Channel to write to socket
-	writing chan bool     //signals when it is writing
-	done    chan struct{} //signals
+	socket   *websocket.Conn
+	done     chan struct{} //signals to calling routine when done
+	canWrite chan struct{} //Signals when connection is writing
 }
 
 type streamManager struct {
@@ -62,11 +61,10 @@ func (sm *streamManager) AddConn(stream_name string) (ConnId, error) {
 	//Buffered channel ensures write to stream is
 	//made one at a time
 	conn := connection{
-		comm:    make(chan []byte, 1),
-		done:    make(chan struct{}),
-		writing: make(chan bool),
-		socket:  c}
-	conn.writing <-false
+		done:     make(chan struct{}),
+		canWrite: make(chan struct{}, 1),
+		socket:   c}
+	conn.canWrite <- struct{}{}
 	sm.connections[stream_name] = conn
 	sm.numConnections++
 	mu.Unlock()
@@ -80,7 +78,6 @@ func (sm *streamManager) StreamFromTo(stream_name ConnId, out io.Writer) {
 	//TODO
 	//Check if connections is active first
 	//If active, return error
-	//Think if this is secure for go routines
 	go func() {
 		conn := sm.connections[string(stream_name)]
 		for {
@@ -93,9 +90,10 @@ func (sm *streamManager) StreamFromTo(stream_name ConnId, out io.Writer) {
 				if err != nil {
 					log.Println("read:", err)
 					//TODO handle read error from connection
-					//Could be calling on a closed channel
+					//Could be reading from a closed channel
 					//close(conn.done)
 				}
+				//If out is of type Pipe, handle
 				_, err = out.Write(message)
 				if err != nil {
 					log.Println("Write from stream", err)
@@ -106,45 +104,26 @@ func (sm *streamManager) StreamFromTo(stream_name ConnId, out io.Writer) {
 }
 
 //Internal function to handle concurrent writes
-func write(conn connection, msg_type int) error {
-	//Wait until writing is false
-	for {
-		select {
-		case writing, _ := <- conn.writing:
-			if writing {
-				continue
-			}else {
-				val, ok := <-conn.comm
-				conn.writing <- true
-				if !ok {
-					return errors.New("Writing to closed channel")
-				}
-				err := conn.socket.WriteMessage(websocket.TextMessage, val)
-				if err != nil {
-					log.Println("write error:", err)
-					return err
-				}
-				conn.writing <- false
-				return nil
-			}
-		default:
-			continue
-		}
+func write(conn connection, msg_type int, msg []byte) error {
+	//wait until conn finishes writing
+	<-conn.canWrite
+	err := conn.socket.WriteMessage(websocket.TextMessage, msg)
+	if err != nil {
+		log.Println("write error:", err)
+		return err
 	}
+	conn.canWrite <- struct{}{}
+	return nil
 }
 
-//Write through channel
+//Sequential wrapper for async write
 func (sm *streamManager) WriteTextTo(streamId ConnId, msg []byte) error {
-	log.Println("here")
 	conn := sm.connections[string(streamId)]
 	//TODO check if connections is active
 
-	//blocks until conn can read
-	//Todo check if can write to comm
 	//internal write through channel
 	//used to buffer writes to conn
-	conn.comm <- msg
-	go write(conn, websocket.TextMessage)
+	go write(conn, websocket.TextMessage, msg)
 	return nil
 }
 
@@ -156,8 +135,7 @@ func (sm *streamManager) WriteBinTo(streamId ConnId, msg []byte) error {
 	//Todo check if can write to comm
 	//internal write through channel
 	//used to buffer writes to conn
-	go write(conn, websocket.BinaryMessage)
-	conn.comm <- msg
+	go write(conn, websocket.BinaryMessage, msg)
 	return nil
 }
 
@@ -170,17 +148,19 @@ func (sm *streamManager) StopStream(streamId ConnId) {
 	close(conn.done)
 }
 
-//NOT safe for concurrency
 //Sends singal to isDone when stream is safely closed
+//User must make that all writing is done
+//TODO eventually handle this with a queue
 func (sm *streamManager) CloseStream(streamId ConnId, isDone chan struct{}) error {
 	conn := sm.connections[string(streamId)]
 	close(conn.done)    //Signals reading routine
 	defer close(isDone) //signals callling process
 	defer delete(sm.connections, string(streamId))
 	//close stream with wait
-	go write(conn, websocket.CloseMessage)
-	conn.comm <- websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")
-	log.Println("Waiting")
+	go write(conn,
+		websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+	log.Println("Waiting for close")
 	time.Sleep(time.Second * 1)
 	return nil
 }
