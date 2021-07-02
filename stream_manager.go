@@ -7,7 +7,6 @@ package streampvc
 
 import (
 	"errors"
-	"io"
 	"log"
 	"sync"
 	"time"
@@ -74,7 +73,7 @@ func (sm *streamManager) AddConn(stream_name string) (ConnId, error) {
 //Initializes the go routine reading from stream writing to out
 //Read until web socket closes or when routine receives close
 //XXX DO NOT CALL IN GO ROUTINE
-func (sm *streamManager) StreamFromTo(stream_name ConnId, out io.Writer) {
+func (sm *streamManager) StreamFromTo(stream_name ConnId, out *streamPipe) {
 	//TODO
 	//Check if connections is active first
 	//If active, return error
@@ -84,6 +83,7 @@ func (sm *streamManager) StreamFromTo(stream_name ConnId, out io.Writer) {
 			select {
 			case <-conn.done:
 				log.Println("Exiting routine")
+				out.closePipe()
 				return
 			default:
 				_, message, err := conn.socket.ReadMessage()

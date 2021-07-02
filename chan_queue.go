@@ -14,7 +14,7 @@ import (
 //handler is the function that listenQueue
 //will call when it dequeues
 type chanQueue struct {
-	list    *list.List
+	list *list.List
 }
 
 type message struct {
@@ -55,12 +55,14 @@ func (cq *chanQueue) dequeue() chan message {
 //Listen to queue waits for channel in front to be ready
 //cq will listen until it can read from front.
 //Once it reads from front, it will pass to nex pipe
-func (cq *chanQueue) listenQueue() {
+func (cq *chanQueue) listenQueue(done <-chan struct{}) {
 	for {
 		if cq.list.Len() == 0 {
 			continue
 		}
 		select {
+		case <-done:
+			return
 		case v := <-cq.list.Front().Value.(chan message):
 			passThrough(v.pipe, v.data)
 			cq.dequeue()

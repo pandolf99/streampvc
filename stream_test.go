@@ -11,22 +11,22 @@ import (
 	"github.com/pandolf99/streampvc"
 )
 
-func TestStream(t *testing.T) {
-	sm := streampvc.NewStreamManager()
-	s := timeStreamServer()
-	defer s.Close()
-	u := "ws" + strings.TrimPrefix(s.URL, "http")
-	conId, err := sm.AddConn(u)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sm.StreamFromTo(conId, os.Stdout)
-	done := make(chan struct{})
-	time.Sleep(time.Second * 30)
-	sm.CloseStream(conId, done)
-	<-done
-	return
-}
+//func TestStream(t *testing.T) {
+	//sm := streampvc.NewStreamManager()
+	//s := timeStreamServer()
+	//defer s.Close()
+	//u := "ws" + strings.TrimPrefix(s.URL, "http")
+	//conId, err := sm.AddConn(u)
+	//if err != nil {
+		//t.Fatal(err)
+	//}
+	//sm.StreamFromTo(conId, os.Stdout)
+	//done := make(chan struct{})
+	//time.Sleep(time.Second * 30)
+	//sm.CloseStream(conId, done)
+	//<-done
+	//return
+//}
 
 func TestPiping(t *testing.T) {
 	sm := streampvc.NewStreamManager()

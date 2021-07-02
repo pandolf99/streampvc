@@ -11,10 +11,22 @@ type streamPipe struct {
 	head *pipeBody
 }
 
+//Sends signal to all listening go routines
+//to return
+func (sp *streamPipe) closePipe() {
+	//TODO Make sure data is not lost
+	//Check for length of queue 
+	for cp := sp.head; cp.NextPipe != nil; cp = cp.NextPipe {
+		close(cp.done)
+	}
+}
+
+
 type pipeBody struct {
 	handle      pipeHandler
 	NextPipe    *pipeBody
 	handleQueue *chanQueue
+	done chan struct{} //Close when done
 }
 
 //Initialize a new pipe body that will
@@ -46,7 +58,10 @@ func BuildPipe(funcs ...func([]byte) []byte) (*streamPipe, error) {
 		//Make the queue write to next
 		cq := newChanQueue()
 		currPipe.handleQueue = cq
-		go cq.listenQueue()
+		//done signals listening routine to stop
+		done := make(chan struct{})
+		currPipe.done = done
+		go cq.listenQueue(done)
 		currPipe = currPipe.NextPipe
 	}
 	return &streamPipe{head: pipeHead}, nil
@@ -79,6 +94,8 @@ func passThrough(pf *pipeBody, b []byte) {
 		pf.handle(b)
 		return
 	}
+	//No need to manage return of this go routine
+	//Guaranteed to always end if handler ends 
 	go func() {
 		ch := make(chan message)
 		pf.handleQueue.enqueue(ch)
