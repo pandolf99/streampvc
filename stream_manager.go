@@ -22,10 +22,11 @@ type connection struct {
 	socket   *websocket.Conn
 	done     chan struct{} //signals to calling routine when done
 	canWrite chan struct{} //Signals when connection is writing
+	to *streamPipe //Pipe that this connection is writing
 }
 
 type streamManager struct {
-	connections        map[string]connection
+	connections        map[string]*connection
 	runningConnections []connection
 	numConnections     int
 }
@@ -33,18 +34,17 @@ type streamManager struct {
 //Returns a zero initialized streamManager
 func NewStreamManager() *streamManager {
 	sm := new(streamManager)
-	sm.connections = make(map[string]connection)
+	sm.connections = make(map[string]*connection)
 	sm.runningConnections = make([]connection, MAXCONS)
 	return sm
 }
 
-var mu sync.Mutex
+var mu sync.RWMutex
 
 //Add a connection to the stream mananger
 //Dissalows duplicate connections
 //Returns error Dial is not succesfull
 func (sm *streamManager) AddConn(stream_name string) (ConnId, error) {
-	mu.Lock()
 	if sm.numConnections >= MAXCONS {
 		return ConnId(""), errors.New("Aready at max connections")
 	}
@@ -59,14 +59,15 @@ func (sm *streamManager) AddConn(stream_name string) (ConnId, error) {
 	}
 	//Buffered channel ensures write to stream is
 	//made one at a time
-	conn := connection{
+	conn := &connection{
 		done:     make(chan struct{}),
 		canWrite: make(chan struct{}, 1),
 		socket:   c}
 	conn.canWrite <- struct{}{}
+	mu.Lock()
 	sm.connections[stream_name] = conn
-	sm.numConnections++
 	mu.Unlock()
+	sm.numConnections++
 	return ConnId(stream_name), nil
 }
 
@@ -79,11 +80,10 @@ func (sm *streamManager) StreamFromTo(stream_name ConnId, out *streamPipe) {
 	//If active, return error
 	go func() {
 		conn := sm.connections[string(stream_name)]
+		conn.to = out
 		for {
 			select {
 			case <-conn.done:
-				log.Println("Exiting routine")
-				out.closePipe()
 				return
 			default:
 				_, message, err := conn.socket.ReadMessage()
@@ -107,6 +107,7 @@ func (sm *streamManager) StreamFromTo(stream_name ConnId, out *streamPipe) {
 func write(conn connection, msg_type int, msg []byte) error {
 	//wait until conn finishes writing
 	<-conn.canWrite
+	conn.socket.SetWriteDeadline(time.Now().Add(time.Second*1))
 	err := conn.socket.WriteMessage(websocket.TextMessage, msg)
 	if err != nil {
 		log.Println("write error:", err)
@@ -123,7 +124,7 @@ func (sm *streamManager) WriteTextTo(streamId ConnId, msg []byte) error {
 
 	//internal write through channel
 	//used to buffer writes to conn
-	go write(conn, websocket.TextMessage, msg)
+	go write(*conn, websocket.TextMessage, msg)
 	return nil
 }
 
@@ -135,7 +136,7 @@ func (sm *streamManager) WriteBinTo(streamId ConnId, msg []byte) error {
 	//Todo check if can write to comm
 	//internal write through channel
 	//used to buffer writes to conn
-	go write(conn, websocket.BinaryMessage, msg)
+	go write(*conn, websocket.BinaryMessage, msg)
 	return nil
 }
 
@@ -152,15 +153,17 @@ func (sm *streamManager) StopStream(streamId ConnId) {
 //User must make that all writing is done
 //TODO eventually handle this with a queue
 func (sm *streamManager) CloseStream(streamId ConnId, isDone chan struct{}) error {
-	conn := sm.connections[string(streamId)]
-	close(conn.done)    //Signals reading routine
-	defer close(isDone) //signals callling process
-	defer delete(sm.connections, string(streamId))
 	//close stream with wait
-	go write(conn,
+	go func () { 
+		conn := sm.connections[string(streamId)]
+		close(conn.done)    //Signals reading routine
+		conn.to.closePipe() //Blocks until all messages are processed
+		defer delete(sm.connections, string(streamId))
+		defer close(isDone) //signals callling process
+		write(*conn,
 		websocket.CloseMessage,
 		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-	log.Println("Waiting for close")
-	time.Sleep(time.Second * 1)
+	}()
+	time.Sleep(time.Second*1)
 	return nil
 }

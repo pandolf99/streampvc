@@ -3,6 +3,7 @@ package streampvc
 
 import (
 	"errors"
+	"log"
 )
 
 type pipeHandler func([]byte) []byte
@@ -15,26 +16,30 @@ type streamPipe struct {
 //to return
 func (sp *streamPipe) closePipe() {
 	//TODO Make sure data is not lost
-	//Check for length of queue 
+	//Check for length of queue
 	for cp := sp.head; cp.NextPipe != nil; cp = cp.NextPipe {
+		//Wait till queue is empty
+		//Should be fast since stream is closed
+		for !cp.handleQueue.isEmpty() {
+		}
 		close(cp.done)
 	}
+	log.Println("Finished all pipe handlers")
 }
-
 
 type pipeBody struct {
 	handle      pipeHandler
 	NextPipe    *pipeBody
 	handleQueue *chanQueue
-	done chan struct{} //Close when done
+	done        chan struct{} //Close when done
 }
 
 //Initialize a new pipe body that will
 //handle data with f
 func NewPipeBody(f func([]byte) []byte) *pipeBody {
 	return &pipeBody{
-		handle:      f,
-		NextPipe:    nil}
+		handle:   f,
+		NextPipe: nil}
 }
 
 //Write to first pipe body
@@ -44,7 +49,6 @@ func (sp *streamPipe) Write(b []byte) (int, error) {
 	//TODO How to handle error
 	return len(b), nil
 }
-
 
 //Helper function to rapidly construct pipe
 func BuildPipe(funcs ...func([]byte) []byte) (*streamPipe, error) {
@@ -70,7 +74,7 @@ func BuildPipe(funcs ...func([]byte) []byte) (*streamPipe, error) {
 //Async Write
 //If one routine is taking longer than others,
 //Streaming order will be lost
-//Might be useful when 
+//Might be useful when order is not necesary
 func passThrough2(pf *pipeBody, b []byte) {
 	next := pf.NextPipe
 	//If end of pipe just execute handler
@@ -95,7 +99,7 @@ func passThrough(pf *pipeBody, b []byte) {
 		return
 	}
 	//No need to manage return of this go routine
-	//Guaranteed to always end if handler ends 
+	//Guaranteed to always end if handler ends
 	go func() {
 		ch := make(chan message)
 		pf.handleQueue.enqueue(ch)

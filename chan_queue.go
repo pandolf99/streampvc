@@ -24,7 +24,6 @@ type message struct {
 
 //Initializes a new chanQueue with a doubly linked list
 //As its underlying data type
-//Dont intitialize handler as it is unknown at creation time
 func newChanQueue() *chanQueue {
 	return &chanQueue{
 		list: list.New()}
@@ -52,17 +51,26 @@ func (cq *chanQueue) dequeue() chan message {
 	return v.(chan message)
 }
 
+func (cq *chanQueue) isEmpty() bool {
+	return cq.list.Len() == 0 
+}
+
 //Listen to queue waits for channel in front to be ready
 //cq will listen until it can read from front.
 //Once it reads from front, it will pass to nex pipe
 func (cq *chanQueue) listenQueue(done <-chan struct{}) {
 	for {
-		if cq.list.Len() == 0 {
-			continue
+		if cq.isEmpty() {
+			//Should only return when queue is empty
+			//When queue is empty it means there are no handlers running
+			select {
+			case <-done:
+				return
+			default:
+				continue
+			}
 		}
 		select {
-		case <-done:
-			return
 		case v := <-cq.list.Front().Value.(chan message):
 			passThrough(v.pipe, v.data)
 			cq.dequeue()
