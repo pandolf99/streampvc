@@ -55,23 +55,8 @@ func BuildPipe(funcs ...func([]byte) []byte) (*streamPipe, error) {
 //Async Write
 //If one routine is taking longer than others,
 //Streaming order will be lost
-//func (pf *pipeBody) passThrough2(b []byte) {
-	//next := pf.NextPipe
-	////If end of pipe just execute handler
-	//if next == nil {
-		//go func(data []byte) {
-			//pf.handle(data)
-		//}(b)
-		//return
-	//}
-	//go func(next *pipeBody, data []byte) {
-		//next.passThrough(data)
-	//}(next, pf.handle(b))
-	//return
-//}
-
-//Pass bytes b through pipeBody
-func passThrough(pf *pipeBody, b []byte) {
+//Might be useful when 
+func passThrough2(pf *pipeBody, b []byte) {
 	next := pf.NextPipe
 	//If end of pipe just execute handler
 	if next == nil {
@@ -80,13 +65,27 @@ func passThrough(pf *pipeBody, b []byte) {
 		}(b)
 		return
 	}
-	go func(data []byte, next *pipeBody) {
+	go func(next *pipeBody, data []byte) {
+		passThrough(next, data)
+	}(next, pf.handle(b))
+	return
+}
+
+//Pass bytes b through pipeBody
+func passThrough(pf *pipeBody, b []byte) {
+	next := pf.NextPipe
+	//If end of pipe just execute handler
+	if next == nil {
+		pf.handle(b)
+		return
+	}
+	go func() {
 		ch := make(chan message)
 		pf.handleQueue.enqueue(ch)
 		msg := message{
-			data: pf.handle(data),
+			data: pf.handle(b),
 			pipe: next}
 		ch <- msg
 		close(ch)
-	}(b, next)
+	}()
 }

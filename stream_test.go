@@ -44,10 +44,9 @@ func TestPiping(t *testing.T) {
 	}
 	h2 := func(b []byte) []byte {
 		i, _ := strconv.Atoi(string(b))
-		//Simulate taking longer on one read
-		//if i%3 == 0 {
-			//time.Sleep(time.Second * 3)
-		//}
+		if i%3 == 0{
+			time.Sleep(time.Second*2)
+		}
 		i++
 		return []byte(strconv.Itoa(i))
 	}
@@ -61,7 +60,7 @@ func TestPiping(t *testing.T) {
 	}
 	sm.StreamFromTo(conId, ph)
 	done := make(chan struct{})
-	time.Sleep(time.Second * 10000)
+	time.Sleep(time.Second * 7)
 	sm.CloseStream(conId, done)
 	<-done
 	return

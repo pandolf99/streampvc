@@ -44,7 +44,7 @@ func intStreamServer() *httptest.Server {
 			if err != nil {
 				break
 			}
-			time.Sleep(time.Second * 1)
+			time.Sleep(time.Millisecond * 500)
 		}
 	}
 	return httptest.NewServer(http.HandlerFunc(handler))
