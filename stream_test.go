@@ -59,9 +59,7 @@ func TestPiping(t *testing.T) {
 		t.Fatal("Could not build pipe")
 	}
 	sm.StreamFromTo(conId, ph)
-	done := make(chan struct{})
 	time.Sleep(time.Second * 7)
-	sm.CloseStream(conId, done)
-	<-done
+	<-sm.CloseStream(conId)
 	return
 }

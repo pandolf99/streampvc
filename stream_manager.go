@@ -152,18 +152,18 @@ func (sm *streamManager) StopStream(streamId ConnId) {
 //Sends singal to isDone when stream is safely closed
 //User must make that all writing is done
 //TODO eventually handle this with a queue
-func (sm *streamManager) CloseStream(streamId ConnId, isDone chan struct{}) error {
+func (sm *streamManager) CloseStream(streamId ConnId) chan struct{} {
 	//close stream with wait
+	done := make(chan struct{})
 	go func () { 
 		conn := sm.connections[string(streamId)]
 		close(conn.done)    //Signals reading routine
 		conn.to.closePipe() //Blocks until all messages are processed
 		defer delete(sm.connections, string(streamId))
-		defer close(isDone) //signals callling process
+		defer close(done) //Signal Calling process
 		write(*conn,
 		websocket.CloseMessage,
 		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 	}()
-	time.Sleep(time.Second*1)
-	return nil
+	return done
 }
