@@ -54,7 +54,7 @@ func TestPiping(t *testing.T) {
 		os.Stdout.Write(b)
 		return b
 	}
-	ph, err := streampvc.BuildPipe(h1, h2, h3)
+	ph, err := streampvc.BuildSemiOrderPipe(h1, h2, h3)
 	if err != nil {
 		t.Fatal("Could not build pipe")
 	}

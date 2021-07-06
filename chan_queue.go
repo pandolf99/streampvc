@@ -78,3 +78,25 @@ func (cq *chanQueue) listenQueue(done <-chan struct{}) {
 		}
 	}
 }
+
+//Only listen to the tail
+func (cq *chanQueue) listenQueue3(done <-chan struct{}) {
+	for {
+		if cq.isEmpty() {
+			//Should only return when queue is empty
+			//When queue is empty it means there are no handlers running
+			select {
+			case <-done:
+				return
+			default:
+				continue
+			}
+		}
+		select {
+		case v := <-cq.list.Front().Value.(chan message):
+			v.pipe.handle(v.data)
+			cq.dequeue()
+		default:
+		}
+	}
+}

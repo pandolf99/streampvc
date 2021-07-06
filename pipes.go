@@ -10,11 +10,12 @@ type pipeHandler func([]byte) []byte
 
 type streamPipe struct {
 	head *pipeBody
+	tail *pipeBody
 }
 
 //Sends signal to all listening go routines
 //to return
-func (sp *streamPipe) closePipe() {
+func (sp *streamPipe) closePipe1() {
 	//TODO Make sure data is not lost
 	//Check for length of queue
 	for cp := sp.head; cp.NextPipe != nil; cp = cp.NextPipe {
@@ -24,6 +25,17 @@ func (sp *streamPipe) closePipe() {
 		}
 		close(cp.done)
 	}
+	log.Println("Finished all pipe handlers")
+}
+
+//Close the tail
+func (sp *streamPipe) closePipe() {
+	//Wait till queue is empty
+	//Should be fast since stream is closed
+	//Only need to close 
+	for !sp.tail.handleQueue.isEmpty() {
+	}
+	close(sp.tail.done)
 	log.Println("Finished all pipe handlers")
 }
 
@@ -50,6 +62,16 @@ func (sp *streamPipe) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
+//Write to first pipe body
+//Pipe then propagates on its own
+func (sp *streamPipe) Write3(b []byte) (int, error) {
+	ch := make(chan message)
+	sp.tail.handleQueue.enqueue(ch)
+	passThrough3(sp.head, b, ch)
+	//TODO How to handle error
+	return len(b), nil
+}
+
 //Helper function to rapidly construct pipe
 func BuildPipe(funcs ...func([]byte) []byte) (*streamPipe, error) {
 	if len(funcs) == 0 {
@@ -68,7 +90,32 @@ func BuildPipe(funcs ...func([]byte) []byte) (*streamPipe, error) {
 		go cq.listenQueue(done)
 		currPipe = currPipe.NextPipe
 	}
-	return &streamPipe{head: pipeHead}, nil
+	//tail has no queue as there is nothing else to passthrough
+	return &streamPipe{head: pipeHead, tail: currPipe}, nil
+}
+
+//A semi ordered pipe only has a listening process
+//on the tail, so order of processing does not matter,
+//only the order of output
+func BuildSemiOrderPipe(funcs ...func([]byte) []byte) (*streamPipe, error) {
+	if len(funcs) == 0 {
+		return nil, errors.New("Must have at least one pipe")
+	}
+	pipeHead := NewPipeBody(funcs[0])
+	currPipe := pipeHead
+	for i := 1; i < len(funcs); i++ {
+		currPipe.NextPipe = NewPipeBody(funcs[i])
+		//Make the queue write to next
+		//done signals listening routine to stop
+		currPipe = currPipe.NextPipe
+	}
+	//Only tail has listening queue
+	done := make(chan struct{})
+	currPipe.done = done
+	cq := newChanQueue()
+	currPipe.handleQueue = cq
+	go cq.listenQueue3(done)
+	return &streamPipe{head: pipeHead, tail: currPipe}, nil
 }
 
 //Async Write
@@ -100,13 +147,35 @@ func passThrough(pf *pipeBody, b []byte) {
 	}
 	//No need to manage return of this go routine
 	//Guaranteed to always end if handler ends
+	ch := make(chan message)
+	pf.handleQueue.enqueue(ch) //Binds the channel to pf
 	go func() {
-		ch := make(chan message)
-		pf.handleQueue.enqueue(ch)
 		msg := message{
 			data: pf.handle(b),
 			pipe: next}
 		ch <- msg
 		close(ch)
 	}()
+}
+
+//For semi ordered pipes
+//Need to carry channel across pipe
+//So it reaches the final pipebody
+func passThrough3(pf *pipeBody, b []byte, ch chan<- message) {
+	next := pf.NextPipe
+	//If in penultimate pipe, write to queue
+	if next.NextPipe == nil {
+		go func() {
+			msg := message{
+				data: pf.handle(b),
+				pipe: next}
+			ch <- msg
+			close(ch)
+		}()
+		return
+	}
+	go func() {
+		passThrough3(next, pf.handle(b), ch)
+	}()
+	return
 }

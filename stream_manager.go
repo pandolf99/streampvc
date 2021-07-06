@@ -94,7 +94,7 @@ func (sm *streamManager) StreamFromTo(stream_name ConnId, out *streamPipe) {
 					//close(conn.done)
 				}
 				//If out is of type Pipe, handle
-				_, err = out.Write(message)
+				_, err = out.Write3(message)
 				if err != nil {
 					log.Println("Write from stream", err)
 				}
