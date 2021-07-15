@@ -31,6 +31,7 @@ func timeStreamServer() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(handler))
 }
 
+//Serve a an int every half second
 func intStreamServer() *httptest.Server {
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		c, err := upgrader.Upgrade(w, r, nil)

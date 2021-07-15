@@ -22,7 +22,7 @@ type connection struct {
 	socket   *websocket.Conn
 	done     chan struct{} //signals to calling routine when done
 	canWrite chan struct{} //Signals when connection is writing
-	to *streamPipe //Pipe that this connection is writing
+	to Piper //Pipe that this connection is writing
 }
 
 type streamManager struct {
@@ -74,7 +74,7 @@ func (sm *streamManager) AddConn(stream_name string) (ConnId, error) {
 //Initializes the go routine reading from stream writing to out
 //Read until web socket closes or when routine receives close
 //XXX DO NOT CALL IN GO ROUTINE
-func (sm *streamManager) StreamFromTo(stream_name ConnId, out *streamPipe) {
+func (sm *streamManager) StreamFromTo(stream_name ConnId, out Piper) {
 	//TODO
 	//Check if connections is active first
 	//If active, return error
@@ -94,7 +94,7 @@ func (sm *streamManager) StreamFromTo(stream_name ConnId, out *streamPipe) {
 					//close(conn.done)
 				}
 				//If out is of type Pipe, handle
-				_, err = out.Write3(message)
+				err = out.WriteToPipe(message)
 				if err != nil {
 					log.Println("Write from stream", err)
 				}
@@ -151,14 +151,15 @@ func (sm *streamManager) StopStream(streamId ConnId) {
 
 //Sends singal to isDone when stream is safely closed
 //User must make that all writing is done
-//TODO eventually handle this with a queue
 func (sm *streamManager) CloseStream(streamId ConnId) chan struct{} {
 	//close stream with wait
 	done := make(chan struct{})
 	go func () { 
 		conn := sm.connections[string(streamId)]
 		close(conn.done)    //Signals reading routine
-		conn.to.closePipe() //Blocks until all messages are processed
+		//Blocks until all messages are processed
+		//Does not block if using async pipe
+		conn.to.closePipe() 
 		defer delete(sm.connections, string(streamId))
 		defer close(done) //Signal Calling process
 		write(*conn,

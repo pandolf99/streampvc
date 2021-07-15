@@ -19,7 +19,7 @@ type chanQueue struct {
 
 type message struct {
 	data []byte
-	pipe *pipeBody
+	pipe pipeBody
 }
 
 //Initializes a new chanQueue with a doubly linked list
@@ -58,7 +58,7 @@ func (cq *chanQueue) isEmpty() bool {
 //Listen to queue waits for channel in front to be ready
 //cq will listen until it can read from front.
 //Once it reads from front, it will pass to nex pipe
-func (cq *chanQueue) listenQueue(done <-chan struct{}) {
+func listenQueue(cq *chanQueue, done <-chan struct{}) {
 	for {
 		if cq.isEmpty() {
 			//Should only return when queue is empty
@@ -72,15 +72,14 @@ func (cq *chanQueue) listenQueue(done <-chan struct{}) {
 		}
 		select {
 		case v := <-cq.list.Front().Value.(chan message):
-			passThrough(v.pipe, v.data)
+			passThroughSync(v.pipe, v.data)
 			cq.dequeue()
 		default:
 		}
 	}
 }
 
-//Only listen to the tail
-func (cq *chanQueue) listenQueue3(done <-chan struct{}) {
+func listenQueueTail(cq *chanQueue, done <-chan struct{}) {
 	for {
 		if cq.isEmpty() {
 			//Should only return when queue is empty
@@ -94,7 +93,7 @@ func (cq *chanQueue) listenQueue3(done <-chan struct{}) {
 		}
 		select {
 		case v := <-cq.list.Front().Value.(chan message):
-			v.pipe.handle(v.data)
+			passThroughOutSync(v.pipe, v.data, nil)
 			cq.dequeue()
 		default:
 		}

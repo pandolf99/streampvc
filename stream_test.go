@@ -11,32 +11,11 @@ import (
 	"github.com/pandolf99/streampvc"
 )
 
-//func TestStream(t *testing.T) {
-	//sm := streampvc.NewStreamManager()
-	//s := timeStreamServer()
-	//defer s.Close()
-	//u := "ws" + strings.TrimPrefix(s.URL, "http")
-	//conId, err := sm.AddConn(u)
-	//if err != nil {
-		//t.Fatal(err)
-	//}
-	//sm.StreamFromTo(conId, os.Stdout)
-	//done := make(chan struct{})
-	//time.Sleep(time.Second * 30)
-	//sm.CloseStream(conId, done)
-	//<-done
-	//return
-//}
-
-func TestPiping(t *testing.T) {
+func TestPipe(t *testing.T) {
 	sm := streampvc.NewStreamManager()
 	s := intStreamServer()
 	defer s.Close()
 	u := "ws" + strings.TrimPrefix(s.URL, "http")
-	conId, err := sm.AddConn(u)
-	if err != nil {
-		t.Fatal(err)
-	}
 	h1 := func(b []byte) []byte {
 		i, _ := strconv.Atoi(string(b))
 		i++
@@ -44,8 +23,8 @@ func TestPiping(t *testing.T) {
 	}
 	h2 := func(b []byte) []byte {
 		i, _ := strconv.Atoi(string(b))
-		if i%3 == 0{
-			time.Sleep(time.Second*2)
+		if i%3 == 0 {
+			time.Sleep(time.Second * 2)
 		}
 		i++
 		return []byte(strconv.Itoa(i))
@@ -54,12 +33,30 @@ func TestPiping(t *testing.T) {
 		os.Stdout.Write(b)
 		return b
 	}
-	ph, err := streampvc.BuildSemiOrderPipe(h1, h2, h3)
-	if err != nil {
-		t.Fatal("Could not build pipe")
+	pipes := []string{"SyncPipe", "AsyncPipe", "OutSyncPipe"}
+	for _, p := range pipes {
+		t.Run(p, func(t *testing.T) {
+			conId, err := sm.AddConn(u)
+			if err != nil {
+				t.Errorf("Could not connect in %s", p)
+				return
+			}
+			ph, err := streampvc.BuildPipe(p, h1, h2, h3)
+			if err != nil {
+				t.Errorf("Could not build %s", p)
+				return
+			}
+			sm.StreamFromTo(conId, ph)
+			time.Sleep(time.Second * 7)
+			//Measure how long they take to close
+			defer func(start time.Time, name string) {
+				elapsed := time.Since(start)
+				t.Logf("%s took %s to close", name, elapsed)
+			}(time.Now(), p)
+			done := sm.CloseStream(conId)
+			<-done
+		})
+
 	}
-	sm.StreamFromTo(conId, ph)
-	time.Sleep(time.Second * 7)
-	<-sm.CloseStream(conId)
 	return
 }
